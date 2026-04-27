@@ -95,6 +95,7 @@
 <body>
 <div id="gameWrap">
   <canvas id="game" width="1200" height="675"></canvas>
+  <input id="nameInput" type="text" maxlength="3" autocapitalize="characters" autocomplete="off" spellcheck="false" inputmode="text" style="position:fixed;top:50%;left:50%;width:1px;height:1px;opacity:0;border:0;padding:0;margin:0;font-size:16px;color:transparent;background:transparent;caret-color:transparent;pointer-events:none;-webkit-user-select:text;user-select:text;">
 </div>
 <div id="hint"></div>
 <script>document.getElementById('hint').textContent =
@@ -171,6 +172,14 @@ const ctx    = canvas.getContext('2d');
 /* ---------- Mobile detection + adaptive prompts ---------- */
 const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
   || ('ontouchstart' in window && window.innerWidth < 1024);
+
+/* Reduce internal canvas resolution on mobile for better performance */
+const RENDER_SCALE = isMobile ? 0.7 : 1;
+if (isMobile) {
+  canvas.width = Math.round(1200 * RENDER_SCALE);
+  canvas.height = Math.round(675 * RENDER_SCALE);
+  ctx.scale(RENDER_SCALE, RENDER_SCALE);
+}
 
 const PROMPTS = {
   flap:     isMobile ? 'TAP TO FLAP'                       : 'SPACE OR CLICK TO FLAP',
@@ -253,8 +262,8 @@ const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 function getEnteredName() {
   return ALPHABET[nameEntry.chars[0]] + ALPHABET[nameEntry.chars[1]] + ALPHABET[nameEntry.chars[2]];
 }
-const W = canvas.width;
-const H = canvas.height;
+const W = 1200;
+const H = 675;
 
 /* ---------- Brand palette ---------- */
 const C = {
@@ -353,7 +362,8 @@ function drawTextBuddyMark() {
 const STATE = {
   BOOT: 'boot', QUESTION: 'question', PLAY: 'play',
   PAUSE: 'pause', SUMMARY: 'summary', OVER: 'over',
-  NAME_ENTRY: 'nameEntry', SESSION_END: 'sessionEnd'
+  NAME_ENTRY: 'nameEntry', SESSION_END: 'sessionEnd',
+  LEADERBOARD: 'leaderboard'
 };
 let state = STATE.BOOT;
 
@@ -495,13 +505,60 @@ function tryFlap() {
   else if (state === STATE.BOOT) beginQuestion();
   else if (state === STATE.OVER) resetAll();
   else if (state === STATE.SESSION_END && isMobile) goToBoot();
+  else if (state === STATE.LEADERBOARD) goToBoot();
   else if (state === STATE.PAUSE) {
     state = STATE.PLAY;
   }
   // SESSION_END on desktop: scoreboard stays until R or Reset button
 }
+/* ---------- Hidden input for native mobile keyboard ---------- */
+const nameInput = document.getElementById('nameInput');
+if (nameInput) {
+  nameInput.addEventListener('input', () => {
+    if (state !== STATE.NAME_ENTRY || nameEntry.submitting) return;
+    const v = nameInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
+    nameInput.value = v;
+    for (let i = 0; i < 3; i++) {
+      const ch = v[i];
+      const idx = ch ? ALPHABET.indexOf(ch) : 0;
+      nameEntry.chars[i] = idx >= 0 ? idx : 0;
+    }
+    nameEntry.slot = v.length >= 3 ? 3 : v.length;
+  });
+  nameInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && state === STATE.NAME_ENTRY && !nameEntry.submitting) {
+      e.preventDefault();
+      submitAndShowLeaderboard();
+    }
+  });
+}
+
+function focusNameInput() {
+  if (!nameInput || !isMobile) return;
+  try { nameInput.focus({ preventScroll: true }); } catch (_) { nameInput.focus(); }
+}
+
 window.addEventListener('keydown', e => {
   if (state === STATE.NAME_ENTRY && !nameEntry.submitting) {
+    // Mobile uses the hidden input (virtual keyboard → input event).
+    // Desktop handles direct letter/digit typing here.
+    if (!isMobile && e.key && e.key.length === 1 && /^[a-zA-Z0-9]$/.test(e.key) && nameEntry.slot < 3) {
+      e.preventDefault();
+      const idx = ALPHABET.indexOf(e.key.toUpperCase());
+      if (idx >= 0) {
+        nameEntry.chars[nameEntry.slot] = idx;
+        if (nameEntry.slot < 2) nameEntry.slot++;
+        else nameEntry.slot = 3;
+      }
+      return;
+    }
+    if (!isMobile && e.code === 'Backspace') {
+      e.preventDefault();
+      if (nameEntry.slot === 3) { nameEntry.slot = 2; nameEntry.chars[2] = 0; }
+      else if (nameEntry.slot > 0) { nameEntry.slot--; nameEntry.chars[nameEntry.slot] = 0; }
+      else nameEntry.chars[0] = 0;
+      return;
+    }
     if (e.code === 'ArrowUp') {
       e.preventDefault();
       nameEntry.chars[nameEntry.slot] = (nameEntry.chars[nameEntry.slot] + 1) % ALPHABET.length;
@@ -511,20 +568,26 @@ window.addEventListener('keydown', e => {
     } else if (e.code === 'ArrowLeft') {
       e.preventDefault();
       if (nameEntry.slot > 0) nameEntry.slot--;
-      else nameEntry.slot = 3; // wrap to country
+      else nameEntry.slot = 3;
     } else if (e.code === 'ArrowRight' || e.code === 'Tab') {
       e.preventDefault();
       if (nameEntry.slot < 3) nameEntry.slot++;
-      else nameEntry.slot = 0; // wrap to first char
+      else nameEntry.slot = 0;
     } else if (e.code === 'Enter') {
       e.preventDefault();
       submitAndShowLeaderboard();
     } else if (e.code === 'Space') {
       e.preventDefault();
-      // Cycle country if on country slot
       if (nameEntry.slot === 3) {
         nameEntry.countryIdx = (nameEntry.countryIdx + 1) % COUNTRIES.length;
       }
+    }
+    return;
+  }
+  if (state === STATE.LEADERBOARD) {
+    if (e.code === 'Escape' || e.code === 'KeyR' || e.code === 'Backspace' || e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      goToBoot();
     }
     return;
   }
@@ -537,6 +600,20 @@ window.addEventListener('keydown', e => {
 /* Reset button hitbox (rendered at bottom-right of canvas) */
 const RESET_BTN = { x: W - 44, y: H - 78, r: 16 };
 
+/* Boot screen "VIEW FULL LEADERBOARD" button hitbox (set in drawBoot) */
+const BOOT_LEADERBOARD_BTN = { x: 0, y: 0, w: 0, h: 0 };
+/* Leaderboard "BACK" button hitbox (set in drawLeaderboard) */
+const LEADERBOARD_BACK_BTN = { x: 0, y: 0, w: 0, h: 0 };
+
+function hitBootLeaderboardBtn(mx, my) {
+  const b = BOOT_LEADERBOARD_BTN;
+  return b.w > 0 && mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
+}
+function hitLeaderboardBackBtn(mx, my) {
+  const b = LEADERBOARD_BACK_BTN;
+  return b.w > 0 && mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
+}
+
 function hitResetButton(mx, my) {
   if (state === STATE.BOOT) return false;
   const dx = mx - RESET_BTN.x, dy = my - RESET_BTN.y;
@@ -545,8 +622,8 @@ function hitResetButton(mx, my) {
 
 function canvasCoords(e) {
   const rect = canvas.getBoundingClientRect();
-  const sx = canvas.width / rect.width;
-  const sy = canvas.height / rect.height;
+  const sx = W / rect.width;
+  const sy = H / rect.height;
   const cx = (e.clientX !== undefined ? e.clientX : e.touches[0].clientX);
   const cy = (e.clientY !== undefined ? e.clientY : e.touches[0].clientY);
   return { x: (cx - rect.left) * sx, y: (cy - rect.top) * sy };
@@ -556,6 +633,15 @@ canvas.addEventListener('mousedown', e => {
   const { x, y } = canvasCoords(e);
   if (state === STATE.NAME_ENTRY && !nameEntry.submitting) {
     handleNameEntryClick(x, y);
+    focusNameInput();
+    return;
+  }
+  if (state === STATE.BOOT && hitBootLeaderboardBtn(x, y)) {
+    state = STATE.LEADERBOARD;
+    return;
+  }
+  if (state === STATE.LEADERBOARD) {
+    if (hitLeaderboardBackBtn(x, y)) goToBoot();
     return;
   }
   if (hitResetButton(x, y)) { goToBoot(); return; }
@@ -572,6 +658,15 @@ canvas.addEventListener('touchstart', e => {
   const { x, y } = canvasCoords(e);
   if (state === STATE.NAME_ENTRY && !nameEntry.submitting) {
     handleNameEntryClick(x, y);
+    focusNameInput();
+    return;
+  }
+  if (state === STATE.BOOT && hitBootLeaderboardBtn(x, y)) {
+    state = STATE.LEADERBOARD;
+    return;
+  }
+  if (state === STATE.LEADERBOARD) {
+    goToBoot();
     return;
   }
   if (hitResetButton(x, y)) { goToBoot(); return; }
@@ -1791,7 +1886,7 @@ function saveLocalBoard(entries) {
   try { localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(entries.slice(0, 10))); } catch (e) {}
 }
 
-function endSession() {
+function finalizeAndStartNameEntry() {
   const avgQuality = world.questionsAnswered > 0
     ? Math.round(world.qualitySum / world.questionsAnswered)
     : 0;
@@ -1801,13 +1896,23 @@ function endSession() {
     avg_quality: avgQuality,
     max_combo: world.maxCombo
   };
-  // Reset name entry for new input
   nameEntry.chars = [0, 0, 0];
   nameEntry.slot = 0;
   nameEntry.submitting = false;
   nameEntry.submitted = false;
   state = STATE.NAME_ENTRY;
+  if (nameInput) nameInput.value = '';
+}
+
+function endSession() {
+  finalizeAndStartNameEntry();
   sfx.win();
+}
+
+async function loadLeaderboardForBoot() {
+  let board = await supabaseFetchTop(10);
+  if (board.length === 0) board = loadLocalBoard().slice(0, 10);
+  world.topBoard = board;
 }
 
 async function submitAndShowLeaderboard() {
@@ -1894,7 +1999,7 @@ function deliverAnswer() {
 function gameOver(reason) {
   if (state !== STATE.PLAY) return;
   world.overReason = reason || 'Run ended.';
-  state = STATE.OVER;
+  finalizeAndStartNameEntry();
   sfx.over();
 }
 function resetAll() {
@@ -1929,6 +2034,7 @@ function goToBoot() {
   world.speed = 2.8;
   world.question = QUESTIONS[0];
   dany.reset();
+  loadLeaderboardForBoot();
 }
 function resetRound() {
   world.goods = []; world.bads = []; world.gaps = []; world.retrs = []; world.negs = [];
@@ -2199,6 +2305,7 @@ function draw() {
   drawBackground();
 
   if (state === STATE.BOOT) { drawBoot(); return; }
+  if (state === STATE.LEADERBOARD) { drawLeaderboard(); return; }
 
   // World objects
   for (const g of world.gaps) g.draw();
@@ -2775,11 +2882,72 @@ function drawBoot() {
   ctx.font = F(12, 400);
   ctx.fillText('Good content saves time. Bad content wastes it.', px + 36, py + 454);
 
-  // ========== RIGHT COLUMN: Legend ==========
+  // ========== RIGHT COLUMN: TOP 3 + Compressed Legend ==========
 
   const lx = colSplit + 40;
-  let ly = py + 60;
+  let ly = py + 56;
 
+  // TOP 3 header
+  ctx.fillStyle = 'rgba(247, 180, 174, 0.85)';
+  ctx.font = F(11, 700);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(SUPABASE_CONFIGURED ? 'TOP 3 GLOBAL' : 'TOP 3 LOCAL', lx, ly);
+
+  // TOP 3 rows
+  const top3 = (world.topBoard || []).slice(0, 3);
+  const rowsStartY = ly + 18;
+  if (top3.length === 0) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = F(13, 400);
+    ctx.fillText('Be the first to score', lx, rowsStartY + 24);
+  } else {
+    for (let i = 0; i < 3; i++) {
+      const e = top3[i];
+      const rowY = rowsStartY + i * 32;
+      ctx.fillStyle = i === 0 ? C.pink : 'rgba(255, 255, 255, 0.55)';
+      ctx.font = F(12, 700);
+      ctx.textAlign = 'left';
+      ctx.fillText(`#${i + 1}`, lx, rowY + 14);
+      if (e) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+        ctx.font = F(15, 700);
+        ctx.fillText(e.name || '???', lx + 36, rowY + 14);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.font = F(10, 700);
+        ctx.fillText(e.country || '--', lx + 110, rowY + 14);
+        ctx.fillStyle = C.white;
+        ctx.font = F(15, 700);
+        ctx.textAlign = 'right';
+        ctx.fillText(`${e.score}`, lx + 295, rowY + 14);
+      } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.font = F(13, 700);
+        ctx.fillText('—', lx + 36, rowY + 14);
+      }
+    }
+  }
+
+  // VIEW FULL LEADERBOARD button
+  const vlbW = 220, vlbH = 30;
+  const vlbX = lx;
+  const vlbY = rowsStartY + 96 + 8;
+  BOOT_LEADERBOARD_BTN.x = vlbX;
+  BOOT_LEADERBOARD_BTN.y = vlbY;
+  BOOT_LEADERBOARD_BTN.w = vlbW;
+  BOOT_LEADERBOARD_BTN.h = vlbH;
+  ctx.fillStyle = 'rgba(63, 143, 217, 0.18)';
+  roundRect(ctx, vlbX, vlbY, vlbW, vlbH, vlbH / 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(63, 143, 217, 0.55)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, vlbX, vlbY, vlbW, vlbH, vlbH / 2); ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = F(11, 700);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('VIEW FULL LEADERBOARD', vlbX + vlbW / 2, vlbY + vlbH / 2 + 1);
+
+  ly = vlbY + vlbH + 26;
+
+  // HOW TO PLAY (compressed: 3 essentials)
   ctx.fillStyle = 'rgba(247, 180, 174, 0.85)';
   ctx.font = F(11, 700);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -2787,28 +2955,18 @@ function drawBoot() {
 
   ly += 32;
   drawLegendItem(lx, ly, 'article', 'GOOD ARTICLE',
-    'Real knowledge base content that helps',
-    'Danoners solve their problems faster.');
-  ly += 72;
+    'Real KB content that helps Danoners',
+    'solve their problems faster.');
+  ly += 64;
 
   drawLegendItem(lx, ly, 'detractor', 'DETRACTORS',
-    'Outdated articles, gaps, and bad feedback.',
+    'Outdated articles, gaps, bad feedback.',
     'In real life, these waste hours of work.');
-  ly += 72;
-
-  drawLegendItem(lx, ly, 'buddy', 'TEXTBUDDY',
-    'Our content monitor that curates articles.',
-    'Converts bad content into useful ones.');
-  ly += 72;
+  ly += 64;
 
   drawLegendItem(lx, ly, 'portal', 'ANSWER PORTAL',
     'When confidence is high, deliver the answer.',
     'Every answer served is a Danoner helped.');
-  ly += 72;
-
-  drawLegendItem(lx, ly, 'combo', 'COMBO',
-    'Chain good articles for up to x3 score.',
-    'Consistency is what makes content quality.');
 
   // ========== BOTTOM: Controls + CTA ==========
 
@@ -3278,6 +3436,110 @@ function drawSessionEnd() {
   }
 }
 
+/* ---------- Full leaderboard view (from boot) ---------- */
+function drawLeaderboard() {
+  const pw = 760, ph = 580;
+  const px = (W - pw) / 2, py = (H - ph) / 2;
+
+  ctx.fillStyle = 'rgba(10, 15, 30, 0.82)';
+  ctx.fillRect(0, 0, W, H);
+
+  const gr = ctx.createLinearGradient(px, py, px, py + ph);
+  gr.addColorStop(0, 'rgba(15, 26, 53, 0.98)');
+  gr.addColorStop(1, 'rgba(10, 15, 30, 0.98)');
+  ctx.fillStyle = gr;
+  roundRect(ctx, px, py, pw, ph, 20); ctx.fill();
+  ctx.strokeStyle = 'rgba(63, 143, 217, 0.25)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, px, py, pw, ph, 20); ctx.stroke();
+
+  // Header
+  ctx.fillStyle = C.pink;
+  roundRect(ctx, px + 32, py + 36, 48, 3, 2); ctx.fill();
+  ctx.fillStyle = C.white;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.font = F(28, 700);
+  ctx.fillText(SUPABASE_CONFIGURED ? 'GLOBAL LEADERBOARD' : 'LOCAL LEADERBOARD', px + 32, py + 78);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.font = F(12, 400);
+  ctx.fillText('Top 10 across all Danoners', px + 32, py + 100);
+
+  const tableX = px + 40;
+  const tableY = py + 140;
+  const board = world.topBoard || [];
+
+  if (board.length === 0) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = F(15, 400);
+    ctx.textAlign = 'center';
+    ctx.fillText('No scores yet — be the first!', W / 2, py + ph / 2);
+  } else {
+    // Column headers
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.font = F(9, 700);
+    ctx.textAlign = 'left';
+    ctx.fillText('RANK', tableX, tableY);
+    ctx.fillText('NAME', tableX + 60, tableY);
+    ctx.fillText('SCORE', tableX + 200, tableY);
+    ctx.fillText('Q', tableX + 330, tableY);
+    ctx.fillText('AVG', tableX + 390, tableY);
+    ctx.fillText('MAX COMBO', tableX + 460, tableY);
+    ctx.textAlign = 'right';
+    ctx.fillText('COUNTRY', tableX + pw - 80, tableY);
+
+    const rowH = 34;
+    for (let i = 0; i < Math.min(10, board.length); i++) {
+      const e = board[i];
+      const y = tableY + 22 + i * rowH;
+
+      // Subtle row stripe for top 3
+      if (i < 3) {
+        ctx.fillStyle = i === 0 ? 'rgba(247, 180, 174, 0.08)' : 'rgba(255, 255, 255, 0.025)';
+        roundRect(ctx, tableX - 12, y - 14, pw - 56, 28, 6); ctx.fill();
+      }
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = i === 0 ? C.pink : (i < 3 ? 'rgba(255, 255, 255, 0.75)' : 'rgba(255, 255, 255, 0.5)');
+      ctx.font = F(13, 700);
+      ctx.fillText(`#${i + 1}`, tableX, y);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.font = F(15, 700);
+      ctx.fillText(e.name || '???', tableX + 60, y);
+
+      ctx.fillStyle = C.white;
+      ctx.font = F(16, 700);
+      ctx.fillText(`${e.score}`, tableX + 200, y);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+      ctx.font = F(13, 400);
+      ctx.fillText(`${e.questions || 0}`, tableX + 330, y);
+      ctx.fillText(`${e.avg_quality || 0}%`, tableX + 390, y);
+      ctx.fillText(`${e.max_combo || 0}`, tableX + 460, y);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      ctx.font = F(13, 700);
+      ctx.textAlign = 'right';
+      ctx.fillText(e.country || '--', tableX + pw - 80, y);
+    }
+  }
+
+  // BACK button
+  const btnW = 200, btnH = 40;
+  const btnX = (W - btnW) / 2;
+  const btnY = py + ph - btnH - 24;
+  LEADERBOARD_BACK_BTN.x = btnX;
+  LEADERBOARD_BACK_BTN.y = btnY;
+  LEADERBOARD_BACK_BTN.w = btnW;
+  LEADERBOARD_BACK_BTN.h = btnH;
+  ctx.fillStyle = C.pink;
+  roundRect(ctx, btnX, btnY, btnW, btnH, btnH / 2); ctx.fill();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.font = F(13, 700);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(isMobile ? 'TAP TO GO BACK' : 'BACK', btnX + btnW / 2, btnY + btnH / 2 + 1);
+}
+
 function drawCenterPanel(title, lines, cta) {
   const pw = 720, ph = 420;
   const px = (W - pw) / 2, py = (H - ph) / 2;
@@ -3350,6 +3612,7 @@ function loop() {
 
 /* ---------- Boot ---------- */
 world.question = QUESTIONS[0];
+loadLeaderboardForBoot();
 loop();
 </script>
 </body>
