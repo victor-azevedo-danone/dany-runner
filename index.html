@@ -2653,14 +2653,29 @@ function drawReadOverlay() {
   ctx.fillStyle = barGrad;
   roundRect(ctx, -barW / 2, barY, barW * progress, barH, 2); ctx.fill();
 
-  // Countdown hint OR "press space to start" prompt
+  // Countdown hint OR tutorial + "press space to start" prompt
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   if (world.awaitingStart) {
+    // Mini-tutorial above the start prompt
+    ctx.fillStyle = 'rgba(247, 180, 174, 0.85)';
+    ctx.font = F(10, 700);
+    ctx.fillText('HOW TO FLY', 0, barY + 26);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.font = F(12, 400);
+    const line1 = isMobile
+      ? 'Tap the screen to flap. Each tap raises Dany.'
+      : 'Tap SPACE to flap. Each tap raises Dany.';
+    const line2 = 'Keep tapping to stay airborne — don’t hold.';
+    ctx.fillText(line1, 0, barY + 46);
+    ctx.fillText(line2, 0, barY + 64);
+
+    // Pulsing start prompt
     const pulse = 0.55 + 0.45 * Math.abs(Math.sin(performance.now() / 280));
     ctx.fillStyle = `rgba(247, 180, 174, ${pulse})`;
     ctx.font = F(13, 700);
     const startText = isMobile ? 'TAP TO START' : 'PRESS SPACE TO START';
-    ctx.fillText(startText, 0, barY + 24);
+    ctx.fillText(startText, 0, barY + 96);
   } else {
     const secsLeft = Math.ceil(t / 60);
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
