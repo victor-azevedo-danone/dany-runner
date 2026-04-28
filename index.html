@@ -50,7 +50,6 @@
   }
   @media (max-width: 800px) {
     canvas { border-radius: 0; box-shadow: none; }
-    #hint { display: none; }
   }
   #rotateOverlay {
     display: none;
@@ -81,14 +80,6 @@
   @media (max-width: 900px) and (orientation: portrait) {
     #rotateOverlay { display: flex; }
     #gameWrap { display: none; }
-    #hint { display: none; }
-  }
-  #hint {
-    position: absolute; bottom: 16px; left: 50%;
-    transform: translateX(-50%);
-    font-size: 12px; color: rgba(255,255,255,0.5);
-    letter-spacing: 0.08em; text-transform: uppercase;
-    pointer-events: none;
   }
 </style>
 </head>
@@ -97,12 +88,6 @@
   <canvas id="game" width="1200" height="675"></canvas>
   <input id="nameInput" type="text" maxlength="3" autocapitalize="characters" autocomplete="off" spellcheck="false" inputmode="text" style="position:fixed;top:50%;left:50%;width:1px;height:1px;opacity:0;border:0;padding:0;margin:0;font-size:16px;color:transparent;background:transparent;caret-color:transparent;pointer-events:none;-webkit-user-select:text;user-select:text;">
 </div>
-<div id="hint"></div>
-<script>document.getElementById('hint').textContent =
-  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-    ? 'Tap to flap · Two-finger tap to pause'
-    : 'Press SPACE or Click to flap · P to pause · M to mute';
-</script>
 
 <!-- Portrait orientation overlay -->
 <div id="rotateOverlay">
@@ -182,7 +167,7 @@ if (isMobile) {
 }
 
 const PROMPTS = {
-  flap:     isMobile ? 'TAP TO FLAP'                       : 'SPACE OR CLICK TO FLAP',
+  flap:     isMobile ? 'TAP TO FLAP (don’t hold)'      : 'TAP SPACE TO FLAP (don’t hold)',
   pause:    isMobile ? 'TWO-FINGER TAP TO PAUSE'           : 'P TO PAUSE',
   mute:     isMobile ? ''                                   : 'M TO MUTE',
   start:    isMobile ? 'TAP TO START'                       : 'PRESS SPACE TO START',
@@ -500,6 +485,11 @@ const input = { flap: false, pause: false, mute: false };
 function tryFlap() {
   if (state === STATE.PLAY) {
     if (world.readTimer > 0) return;
+    if (world.awaitingStart) {
+      world.awaitingStart = false;
+      world.roundFrames = 0;
+      return; // first input only starts the round; doesn't flap
+    }
     dany.flap();
   }
   else if (state === STATE.BOOT) beginQuestion();
@@ -576,6 +566,9 @@ window.addEventListener('keydown', e => {
     } else if (e.code === 'Enter') {
       e.preventDefault();
       submitAndShowLeaderboard();
+    } else if (e.code === 'Escape') {
+      e.preventDefault();
+      goToBoot();
     } else if (e.code === 'Space') {
       e.preventDefault();
       if (nameEntry.slot === 3) {
@@ -707,8 +700,8 @@ function handleNameEntryClick(mx, my) {
     }
   }
 
-  // Country selector area
-  const countryY = slotsY + slotH + 80;
+  // Country selector area (must match drawNameEntry)
+  const countryY = slotsY + slotH + 56;
   const countryW = 220, countryH = 40;
   const countryX = cx - countryW / 2;
   if (mx >= countryX && mx <= countryX + countryW && my >= countryY && my <= countryY + countryH) {
@@ -732,6 +725,15 @@ function handleNameEntryClick(mx, my) {
   const btnY = countryY + 60;
   if (mx >= btnX && mx <= btnX + btnW && my >= btnY && my <= btnY + btnH) {
     submitAndShowLeaderboard();
+    return;
+  }
+
+  // Skip button (coords must match drawNameEntry)
+  const skipW = 180, skipH = 28;
+  const skipX = cx - skipW / 2;
+  const skipY = btnY + btnH + 12;
+  if (mx >= skipX && mx <= skipX + skipW && my >= skipY && my <= skipY + skipH) {
+    goToBoot();
   }
 }
 
@@ -877,12 +879,15 @@ class DanyAI {
     this.vy = 0; this.size = 96;
     this.rot = 0; this.flapAnim = 0;
     this.stunned = 0; this.invul = 0;
+    this.flapCooldown = 0;
     this.trail = [];
   }
   flap() {
     if (this.stunned > 0) return;
-    this.vy = -9.2;
+    if (this.flapCooldown > 0) return;
+    this.vy = -7.6;
     this.flapAnim = 1;
+    this.flapCooldown = 4;
     sfx.flap();
   }
   update() {
@@ -897,6 +902,7 @@ class DanyAI {
     if (this.stunned > 0) this.stunned--;
     if (DEBUG.god) this.invul = Math.max(this.invul, 2);
     else if (this.invul > 0) this.invul--;
+    if (this.flapCooldown > 0) this.flapCooldown--;
 
     // Trail
     this.trail.unshift({ x: this.x, y: this.y });
@@ -1780,7 +1786,10 @@ const world = {
   question: null,
   portalSpawned: false,
   questionBannerAnim: 0,
-  portalMissed: 0
+  portalMissed: 0,
+  awaitingStart: false, // true between read end and first user input on session 1st question
+  roundFrames: 0,       // frames of active play in current round (post-read, post-awaitingStart)
+  topBoard: []
 };
 
 function comboMultiplier(c) {
@@ -1796,11 +1805,24 @@ const dany = new DanyAI();
 /* ---------- Spawning logic ---------- */
 function spawnWave() {
   const q = world.question;
-  const r = Math.random();
   const safeY = () => 100 + Math.random() * (H - 200);
-
-  // Weighted spawn - tougher: ~26% good early, drops to ~16%
   const lvl = world.level;
+
+  // Soft tutorial: first 5s of the very first question — only good articles + maybe one buddy.
+  // Lets new players learn the flap mechanic without dying immediately.
+  const inSoftTutorial = lvl === 0 && world.roundFrames < 300;
+  if (inSoftTutorial) {
+    const title = q.good[Math.floor(Math.random() * q.good.length)];
+    world.goods.push(new GoodArticle(W + 40, safeY(), title));
+    if (Math.random() < 0.05 && world.buddyCooldown <= 0 && world.roundFrames > 120) {
+      world.buddies.push(new TextBuddy(W + 40, safeY()));
+      world.buddyCooldown = 1200;
+    }
+    return;
+  }
+
+  const r = Math.random();
+  // Weighted spawn - tougher: ~26% good early, drops to ~16%
   const pGood = Math.max(0.16, 0.26 - lvl * 0.02);
   const pBad  = 0.22 + lvl * 0.015;
   const pGap  = 0.18 + lvl * 0.010;
@@ -1870,6 +1892,8 @@ function beginQuestion() {
   world.buddies = [];
   world.question = QUESTIONS[world.level % QUESTIONS.length];
   resetRound();
+  world.awaitingStart = true;
+  world.roundFrames = 0;
   state = STATE.PLAY;
 }
 
@@ -1896,6 +1920,11 @@ function finalizeAndStartNameEntry() {
     avg_quality: avgQuality,
     max_combo: world.maxCombo
   };
+  // Score 0 — skip name entry, show simple over screen
+  if (world.score <= 0) {
+    state = STATE.OVER;
+    return;
+  }
   nameEntry.chars = [0, 0, 0];
   nameEntry.slot = 0;
   nameEntry.submitting = false;
@@ -1913,6 +1942,30 @@ async function loadLeaderboardForBoot() {
   let board = await supabaseFetchTop(10);
   if (board.length === 0) board = loadLocalBoard().slice(0, 10);
   world.topBoard = board;
+}
+
+const USER_COUNTRY_KEY = 'dany_runner_user_country_v1';
+async function detectAndSetUserCountry() {
+  let cc = null;
+  try { cc = localStorage.getItem(USER_COUNTRY_KEY); } catch (_) {}
+  if (!cc) {
+    try {
+      const res = await fetch('https://api.country.is/', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.country) cc = data.country;
+      }
+    } catch (_) {}
+  }
+  if (!cc) {
+    const lang = navigator.language || '';
+    const parts = lang.split('-');
+    if (parts.length >= 2) cc = parts[1].toUpperCase();
+  }
+  if (!cc) return;
+  try { localStorage.setItem(USER_COUNTRY_KEY, cc); } catch (_) {}
+  const idx = COUNTRIES.indexOf(cc);
+  if (idx >= 0) nameEntry.countryIdx = idx;
 }
 
 async function submitAndShowLeaderboard() {
@@ -2032,6 +2085,8 @@ function goToBoot() {
   world.questionBannerAnim = 0;
   world.readTimer = 0;
   world.speed = 2.8;
+  world.awaitingStart = false;
+  world.roundFrames = 0;
   world.question = QUESTIONS[0];
   dany.reset();
   loadLeaderboardForBoot();
@@ -2066,6 +2121,16 @@ function update() {
     return;
   }
 
+  // Awaiting first user input on the session's first question — freeze game
+  if (world.awaitingStart) {
+    for (const p of world.particles) p.update();
+    world.particles = world.particles.filter(p => p.life > 0);
+    for (const m of world.msgs) m.update();
+    world.msgs = world.msgs.filter(m => m.life > 0);
+    return;
+  }
+
+  world.roundFrames++;
   dany.update();
   world.spawnTimer--;
   if (world.buddyCooldown > 0) world.buddyCooldown--;
@@ -2406,18 +2471,19 @@ function drawHitboxes() {
 
 /* ---------- Read overlay: Danoner chat bubble with typing effect (3s) ---------- */
 function drawReadOverlay() {
-  if (world.readTimer <= 0 || state !== STATE.PLAY) return;
+  if (state !== STATE.PLAY) return;
+  if (world.readTimer <= 0 && !world.awaitingStart) return;
 
   const RD = world.readDuration;
-  const t = world.readTimer;              // counts down to 0
-  const elapsed = RD - t;
+  const t = Math.max(0, world.readTimer);              // counts down to 0
+  const elapsed = world.awaitingStart ? RD : RD - t;
   const FADE_IN = 14;
   const FADE_OUT = 24;
 
-  // Overlay alpha: fade in / fade out
+  // Overlay alpha: fade in (skip fade-out while awaitingStart)
   let alpha = 1;
   if (elapsed < FADE_IN) alpha = elapsed / FADE_IN;
-  else if (t < FADE_OUT) alpha = t / FADE_OUT;
+  else if (!world.awaitingStart && t < FADE_OUT) alpha = t / FADE_OUT;
   alpha = Math.max(0, Math.min(1, alpha));
 
   // Scale pop-in (subtle)
@@ -2623,12 +2689,20 @@ function drawReadOverlay() {
   ctx.fillStyle = barGrad;
   roundRect(ctx, -barW / 2, barY, barW * progress, barH, 2); ctx.fill();
 
-  // Countdown hint
-  const secsLeft = Math.ceil(t / 60);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-  ctx.font = F(10, 700);
+  // Countdown hint OR "press space to start" prompt
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-  ctx.fillText(`STARTS IN ${secsLeft}s`, 0, barY + 22);
+  if (world.awaitingStart) {
+    const pulse = 0.55 + 0.45 * Math.abs(Math.sin(performance.now() / 280));
+    ctx.fillStyle = `rgba(247, 180, 174, ${pulse})`;
+    ctx.font = F(13, 700);
+    const startText = isMobile ? 'TAP TO START' : 'PRESS SPACE TO START';
+    ctx.fillText(startText, 0, barY + 24);
+  } else {
+    const secsLeft = Math.ceil(t / 60);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = F(10, 700);
+    ctx.fillText(`STARTS IN ${secsLeft}s`, 0, barY + 22);
+  }
 
   ctx.restore();
 }
@@ -3168,7 +3242,7 @@ function drawNameEntry() {
   ctx.fillRect(0, 0, W, H);
 
   // Panel
-  const pw = 620, ph = 440;
+  const pw = 620, ph = 540;
   const px = cx - pw / 2, py = cy - ph / 2;
   const gr = ctx.createLinearGradient(px, py, px, py + ph);
   gr.addColorStop(0, 'rgba(15, 26, 53, 0.98)');
@@ -3286,14 +3360,30 @@ function drawNameEntry() {
     ctx.fillText('SUBMIT SCORE', cx, btnY + btnH / 2);
   }
 
-  // Controls hint
+  // Skip button (text link below)
+  const skipW = 180, skipH = 28;
+  const skipX = cx - skipW / 2;
+  const skipY = btnY + btnH + 12;
+  if (!nameEntry.submitting) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+    roundRect(ctx, skipX, skipY, skipW, skipH, skipH / 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, skipX, skipY, skipW, skipH, skipH / 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.font = F(11, 700);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('SKIP — DON’T SAVE', cx, skipY + skipH / 2 + 1);
+  }
+
+  // Controls hint (below skip)
   ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
   ctx.font = F(10, 700);
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   const hint = isMobile
-    ? 'TAP LETTERS TO CYCLE  ·  TAP COUNTRY TO CHANGE'
-    : 'ARROWS TO SELECT  ·  UP/DOWN TO CHANGE  ·  ENTER TO SUBMIT';
-  ctx.fillText(hint, cx, py + ph - 20);
+    ? 'TAP A LETTER TO CHANGE  ·  TAP A SLOT TO GO BACK'
+    : 'TYPE 3 LETTERS  ·  BACKSPACE TO DELETE  ·  ENTER TO SUBMIT  ·  ESC TO SKIP';
+  ctx.fillText(hint, cx, skipY + skipH + 16);
 }
 
 function drawSessionEnd() {
@@ -3613,6 +3703,7 @@ function loop() {
 /* ---------- Boot ---------- */
 world.question = QUESTIONS[0];
 loadLeaderboardForBoot();
+detectAndSetUserCountry();
 loop();
 </script>
 </body>
