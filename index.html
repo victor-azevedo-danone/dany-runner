@@ -352,7 +352,8 @@ const STATE = {
   BOOT: 'boot', QUESTION: 'question', PLAY: 'play',
   PAUSE: 'pause', SUMMARY: 'summary', OVER: 'over',
   NAME_ENTRY: 'nameEntry', SESSION_END: 'sessionEnd',
-  LEADERBOARD: 'leaderboard'
+  LEADERBOARD: 'leaderboard',
+  TUTORIAL: 'tutorial'
 };
 let state = STATE.BOOT;
 
@@ -496,6 +497,11 @@ function tryFlap() {
     }
     dany.flap();
   }
+  else if (state === STATE.TUTORIAL) {
+    if (tutorial.step === 0) tutorial.flaps++;
+    if (tutorial.step >= TUTORIAL_STEPS.length - 1) { goToBoot(); return; }
+    dany.flap();
+  }
   else if (state === STATE.BOOT) beginQuestion();
   else if (state === STATE.OVER) resetAll();
   else if (state === STATE.SESSION_END && isMobile) goToBoot();
@@ -568,6 +574,11 @@ window.addEventListener('keydown', e => {
     }
     return;
   }
+  if (state === STATE.TUTORIAL && e.code === 'Escape') {
+    e.preventDefault();
+    goToBoot();
+    return;
+  }
   if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); tryFlap(); }
   if (e.code === 'KeyP') { if (state === STATE.PLAY) state = STATE.PAUSE; else if (state === STATE.PAUSE) state = STATE.PLAY; }
   if (e.code === 'KeyM') { input.mute = !input.mute; }
@@ -579,15 +590,27 @@ const RESET_BTN = { x: W - 44, y: H - 78, r: 16 };
 
 /* Boot screen "VIEW FULL LEADERBOARD" button hitbox (set in drawBoot) */
 const BOOT_LEADERBOARD_BTN = { x: 0, y: 0, w: 0, h: 0 };
+/* Boot screen "TRY TUTORIAL" button hitbox (set in drawBoot) */
+const BOOT_TUTORIAL_BTN = { x: 0, y: 0, w: 0, h: 0 };
 /* Leaderboard "BACK" button hitbox (set in drawLeaderboard) */
 const LEADERBOARD_BACK_BTN = { x: 0, y: 0, w: 0, h: 0 };
+/* Tutorial "SKIP" button hitbox (set in drawTutorialSkipBtn) */
+const TUTORIAL_SKIP_BTN = { x: 0, y: 0, w: 0, h: 0 };
 
 function hitBootLeaderboardBtn(mx, my) {
   const b = BOOT_LEADERBOARD_BTN;
   return b.w > 0 && mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
 }
+function hitBootTutorialBtn(mx, my) {
+  const b = BOOT_TUTORIAL_BTN;
+  return b.w > 0 && mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
+}
 function hitLeaderboardBackBtn(mx, my) {
   const b = LEADERBOARD_BACK_BTN;
+  return b.w > 0 && mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
+}
+function hitTutorialSkipBtn(mx, my) {
+  const b = TUTORIAL_SKIP_BTN;
   return b.w > 0 && mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
 }
 
@@ -613,10 +636,11 @@ canvas.addEventListener('mousedown', e => {
     focusNameInput();
     return;
   }
-  if (state === STATE.BOOT && hitBootLeaderboardBtn(x, y)) {
-    state = STATE.LEADERBOARD;
-    return;
+  if (state === STATE.BOOT) {
+    if (hitBootLeaderboardBtn(x, y)) { state = STATE.LEADERBOARD; return; }
+    if (hitBootTutorialBtn(x, y)) { beginTutorial(); return; }
   }
+  if (state === STATE.TUTORIAL && hitTutorialSkipBtn(x, y)) { goToBoot(); return; }
   if (state === STATE.LEADERBOARD) {
     if (hitLeaderboardBackBtn(x, y)) goToBoot();
     return;
@@ -638,10 +662,11 @@ canvas.addEventListener('touchstart', e => {
     focusNameInput();
     return;
   }
-  if (state === STATE.BOOT && hitBootLeaderboardBtn(x, y)) {
-    state = STATE.LEADERBOARD;
-    return;
+  if (state === STATE.BOOT) {
+    if (hitBootLeaderboardBtn(x, y)) { state = STATE.LEADERBOARD; return; }
+    if (hitBootTutorialBtn(x, y)) { beginTutorial(); return; }
   }
+  if (state === STATE.TUTORIAL && hitTutorialSkipBtn(x, y)) { goToBoot(); return; }
   if (state === STATE.LEADERBOARD) {
     goToBoot();
     return;
@@ -1765,6 +1790,187 @@ function comboMultiplier(c) {
 
 const dany = new DanyAI();
 
+/* ---------- Practice tutorial ---------- */
+const tutorial = {
+  step: 0,        // 0=flap, 1=catch, 2=avoid, 3=portal, 4=done
+  stepFrame: 0,
+  flaps: 0,
+  catches: 0,
+  avoided: 0,
+  delivered: false,
+  spawnTimer: 0,
+  doneFrame: 0
+};
+const TUTORIAL_STEPS = [
+  { title: '1 / 4  ·  FLAP',
+    line1: 'Tap SPACE (or the screen) to flap.',
+    line2: 'Each tap raises Dany. Try 5 taps to continue.',
+    timeout: 720 },
+  { title: '2 / 4  ·  CATCH ARTICLES',
+    line1: 'Catch good articles to build your answer.',
+    line2: 'Grab 3 to continue.',
+    timeout: 900 },
+  { title: '3 / 4  ·  AVOID DETRACTORS',
+    line1: 'Outdated articles, gaps, retrieval issues, bad feedback.',
+    line2: 'Dodge 4 to continue (you can’t die in the tutorial).',
+    timeout: 1080 },
+  { title: '4 / 4  ·  DELIVER THE ANSWER',
+    line1: 'When confidence is high, a portal appears.',
+    line2: 'Fly through it to deliver.',
+    timeout: 720 },
+  { title: 'YOU’RE READY',
+    line1: 'Press SPACE (or tap) to return to the start screen.',
+    line2: '',
+    timeout: 600 }
+];
+
+function beginTutorial() {
+  state = STATE.TUTORIAL;
+  dany.reset();
+  dany.invul = 99999;
+  world.goods = []; world.bads = []; world.gaps = []; world.retrs = []; world.negs = [];
+  world.buddies = []; world.featured = [];
+  world.portals = []; world.particles = []; world.msgs = []; world.flashes = [];
+  world.speed = 2.6;
+  world.question = QUESTIONS[0];
+  tutorial.step = 0;
+  tutorial.stepFrame = 0;
+  tutorial.flaps = 0;
+  tutorial.catches = 0;
+  tutorial.avoided = 0;
+  tutorial.delivered = false;
+  tutorial.spawnTimer = 60;
+  tutorial.doneFrame = 0;
+}
+
+function advanceTutorialStep() {
+  tutorial.step++;
+  tutorial.stepFrame = 0;
+  tutorial.spawnTimer = 60;
+  // Clear field between steps so next step is clean
+  world.goods = []; world.bads = []; world.gaps = []; world.retrs = []; world.negs = [];
+  world.portals = [];
+  if (tutorial.step >= TUTORIAL_STEPS.length - 1) {
+    tutorial.doneFrame = 1;
+  }
+}
+
+function updateTutorial() {
+  tutorial.stepFrame++;
+
+  // Tick visuals always
+  for (const p of world.particles) p.update();
+  world.particles = world.particles.filter(p => p.life > 0);
+  for (const m of world.msgs) m.update();
+  world.msgs = world.msgs.filter(m => m.life > 0);
+
+  // Dany physics, but immortal
+  dany.invul = 99999;
+  dany.update();
+
+  const speed = world.speed;
+  const step = tutorial.step;
+  const cur = TUTORIAL_STEPS[step];
+
+  // Step 0 — Flap practice (no spawns)
+  if (step === 0) {
+    if (tutorial.flaps >= 5 || tutorial.stepFrame > cur.timeout) advanceTutorialStep();
+    return;
+  }
+
+  // Step 1 — Catch good articles
+  if (step === 1) {
+    if (tutorial.spawnTimer-- <= 0) {
+      const title = world.question.good[Math.floor(Math.random() * world.question.good.length)];
+      world.goods.push(new GoodArticle(W + 40, 140 + Math.random() * (H - 280), title));
+      tutorial.spawnTimer = 95;
+    }
+    for (const g of world.goods) g.update(speed);
+    for (const g of world.goods) {
+      if (!g.collected && hits(dany.hitbox(), g.hitbox())) {
+        g.collected = true;
+        tutorial.catches++;
+        sfx.good();
+        for (let i = 0; i < 14; i++) world.particles.push(new Particle(g.x, g.y, 'rgba(34, 197, 94, ALPHA)'));
+        world.msgs.push(new FloatMsg(g.x, g.y - 40, '+1 article!', 'rgba(34, 197, 94, ALPHA)'));
+      }
+    }
+    world.goods = world.goods.filter(g => !g.collected && g.x > -120);
+    if (tutorial.catches >= 3 || tutorial.stepFrame > cur.timeout) advanceTutorialStep();
+    return;
+  }
+
+  // Step 2 — Avoid detractors (cycles through types)
+  if (step === 2) {
+    if (tutorial.spawnTimer-- <= 0) {
+      const y = 140 + Math.random() * (H - 280);
+      const idx = tutorial.avoided + (tutorial.spawnTimer < -200 ? 0 : 0);
+      const seq = ['bad', 'gap', 'retr', 'neg'];
+      const kind = seq[idx % seq.length];
+      if (kind === 'bad') {
+        const title = world.question.bad[Math.floor(Math.random() * world.question.bad.length)];
+        world.bads.push(new BadArticle(W + 40, y, title));
+      } else if (kind === 'gap') {
+        world.gaps.push(new KnowledgeGap(W + 60, y));
+      } else if (kind === 'retr') {
+        world.retrs.push(new RetrievalIssue(W + 40, y));
+      } else if (kind === 'neg') {
+        world.negs.push(new NegativeFeedback(W + 40, y));
+      }
+      tutorial.spawnTimer = 110;
+    }
+    // Update + count anything that exits the screen as "avoided"
+    for (const arr of [world.bads, world.gaps, world.retrs, world.negs]) {
+      for (const e of arr) e.update(speed);
+    }
+    const countOut = (arr) => {
+      let cnt = 0;
+      for (const e of arr) if (e.x < -100) cnt++;
+      return cnt;
+    };
+    const outBefore = tutorial.avoided;
+    const exits = countOut(world.bads) + countOut(world.gaps) + countOut(world.retrs) + countOut(world.negs);
+    tutorial.avoided = outBefore + exits;
+    world.bads = world.bads.filter(e => e.x > -100);
+    world.gaps = world.gaps.filter(e => e.x > -100);
+    world.retrs = world.retrs.filter(e => e.x > -100);
+    world.negs = world.negs.filter(e => e.x > -100);
+    if (tutorial.avoided >= 4 || tutorial.stepFrame > cur.timeout) advanceTutorialStep();
+    return;
+  }
+
+  // Step 3 — Deliver the answer (portal)
+  if (step === 3) {
+    if (world.portals.length === 0 && tutorial.spawnTimer-- <= 0) {
+      const py = Math.max(160, Math.min(H - 160, dany.y));
+      world.portals.push(new AnswerPortal(W + 80, py));
+      tutorial.spawnTimer = 9999;
+    }
+    for (const p of world.portals) p.update(speed);
+    for (const p of world.portals) {
+      if (!p.passed && hits(dany.hitbox(), p.hitbox())) {
+        p.passed = true;
+        tutorial.delivered = true;
+        for (let i = 0; i < 30; i++) {
+          world.particles.push(new Particle(p.x, p.y, 'rgba(247, 180, 174, ALPHA)'));
+          world.particles.push(new Particle(p.x, p.y, 'rgba(0, 94, 184, ALPHA)'));
+        }
+        sfx.win();
+      }
+    }
+    world.portals = world.portals.filter(p => !p.passed && p.x > -200);
+    if (tutorial.delivered || tutorial.stepFrame > cur.timeout) advanceTutorialStep();
+    return;
+  }
+
+  // Step 4 — Done
+  if (step >= TUTORIAL_STEPS.length - 1) {
+    tutorial.doneFrame++;
+    if (tutorial.doneFrame > cur.timeout) goToBoot();
+    return;
+  }
+}
+
 /* ---------- Spawning logic ---------- */
 function spawnWave() {
   const q = world.question;
@@ -2072,6 +2278,7 @@ function resetRound() {
 
 /* ---------- Update / Draw ---------- */
 function update() {
+  if (state === STATE.TUTORIAL) { updateTutorial(); return; }
   if (state !== STATE.PLAY) return;
 
   // 2 second pause after each new question so the user can read it
@@ -2335,6 +2542,21 @@ function draw() {
 
   if (state === STATE.BOOT) { drawBoot(); return; }
   if (state === STATE.LEADERBOARD) { drawLeaderboard(); return; }
+
+  if (state === STATE.TUTORIAL) {
+    for (const g of world.gaps) g.draw();
+    for (const r of world.retrs) r.draw();
+    for (const b of world.bads) b.draw();
+    for (const n of world.negs) n.draw();
+    for (const p of world.portals) p.draw();
+    for (const g of world.goods) g.draw();
+    for (const p of world.particles) p.draw();
+    for (const m of world.msgs) m.draw();
+    dany.draw();
+    drawTutorialOverlay();
+    drawTutorialSkipBtn();
+    return;
+  }
 
   // World objects
   for (const g of world.gaps) g.draw();
@@ -3077,6 +3299,27 @@ function drawBoot() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(PROMPTS.start, 0, 1);
   ctx.restore();
+
+  // "TRY TUTORIAL" button (smaller, secondary, below CTA)
+  const tutBtnW = 200, tutBtnH = 30;
+  const tutBtnX = (W - tutBtnW) / 2;
+  const tutBtnY = ctaY + ctaH + 12;
+  // Stay within panel — the panel ends at py + ph, but we draw inside the bottom region.
+  // ctaY + ctaH + 12 + 30 = py + ph - 16 - 44 + 44 + 12 + 30 = py + ph - 14 (right at the edge)
+  // To keep margin, position tutBtnY a bit higher by relocating CTA could work, but here we stick close.
+  BOOT_TUTORIAL_BTN.x = tutBtnX;
+  BOOT_TUTORIAL_BTN.y = tutBtnY;
+  BOOT_TUTORIAL_BTN.w = tutBtnW;
+  BOOT_TUTORIAL_BTN.h = tutBtnH;
+  ctx.fillStyle = 'rgba(63, 143, 217, 0.15)';
+  roundRect(ctx, tutBtnX, tutBtnY, tutBtnW, tutBtnH, tutBtnH / 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(63, 143, 217, 0.5)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, tutBtnX, tutBtnY, tutBtnW, tutBtnH, tutBtnH / 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.font = F(11, 700);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('FIRST TIME? TRY TUTORIAL', tutBtnX + tutBtnW / 2, tutBtnY + tutBtnH / 2 + 1);
 }
 
 /* ---------- Onboarding legend item ---------- */
@@ -3273,6 +3516,81 @@ function drawMiniDetractor(x, y, w, h, item) {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
   ctx.font = F(9, 400);
   ctx.fillText(item.desc, tx, y + 34);
+}
+
+/* ---------- Tutorial overlays ---------- */
+function drawTutorialOverlay() {
+  const cur = TUTORIAL_STEPS[Math.min(tutorial.step, TUTORIAL_STEPS.length - 1)];
+  const isDone = tutorial.step >= TUTORIAL_STEPS.length - 1;
+
+  // Top instruction band
+  const bandH = 96;
+  const bandY = 12;
+  const bandX = 60;
+  const bandW = W - 120;
+
+  ctx.fillStyle = 'rgba(10, 15, 30, 0.78)';
+  roundRect(ctx, bandX, bandY, bandW, bandH, 12); ctx.fill();
+  ctx.strokeStyle = 'rgba(247, 180, 174, 0.45)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, bandX, bandY, bandW, bandH, 12); ctx.stroke();
+
+  // Title (eyebrow)
+  ctx.fillStyle = isDone ? '#22c55e' : 'rgba(247, 180, 174, 0.95)';
+  ctx.font = F(11, 700);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(cur.title, bandX + 24, bandY + 26);
+
+  // Lines
+  ctx.fillStyle = C.white;
+  ctx.font = F(15, 700);
+  ctx.fillText(cur.line1, bandX + 24, bandY + 52);
+  if (cur.line2) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.font = F(13, 400);
+    ctx.fillText(cur.line2, bandX + 24, bandY + 76);
+  }
+
+  // Progress indicator (right side of the band) — per-step counter
+  let progressText = '';
+  if (tutorial.step === 0) progressText = `${tutorial.flaps} / 5 flaps`;
+  else if (tutorial.step === 1) progressText = `${tutorial.catches} / 3 caught`;
+  else if (tutorial.step === 2) progressText = `${tutorial.avoided} / 4 avoided`;
+  else if (tutorial.step === 3) progressText = tutorial.delivered ? 'Delivered!' : 'Find the portal';
+  if (progressText) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = F(12, 700);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(progressText, bandX + bandW - 24, bandY + bandH / 2);
+  }
+
+  // Pulse hint at bottom when done
+  if (isDone) {
+    const pulse = 0.6 + 0.4 * Math.abs(Math.sin(performance.now() / 280));
+    ctx.fillStyle = `rgba(34, 197, 94, ${pulse})`;
+    ctx.font = F(13, 700);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(isMobile ? 'TAP TO RETURN' : 'PRESS SPACE TO RETURN', W / 2, H - 60);
+  }
+}
+
+function drawTutorialSkipBtn() {
+  const w = 130, h = 30;
+  const x = W - w - 24;
+  const y = H - h - 24;
+  TUTORIAL_SKIP_BTN.x = x;
+  TUTORIAL_SKIP_BTN.y = y;
+  TUTORIAL_SKIP_BTN.w = w;
+  TUTORIAL_SKIP_BTN.h = h;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+  roundRect(ctx, x, y, w, h, h / 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, x, y, w, h, h / 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.font = F(11, 700);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('SKIP TUTORIAL', x + w / 2, y + h / 2 + 1);
 }
 
 function drawPause() {
