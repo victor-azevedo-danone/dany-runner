@@ -81,12 +81,177 @@
     #rotateOverlay { display: flex; }
     #gameWrap { display: none; }
   }
+
+  /* ---------- Mobile name-entry overlay ---------- */
+  #mobileNameEntry {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 1000;
+    background: rgba(10, 15, 30, 0.95);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: max(12px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    /* Re-enable native input behavior even though body has touch-action: none */
+    touch-action: manipulation;
+    -webkit-user-select: auto;
+    user-select: auto;
+  }
+  #mobileNameEntry.active { display: block; }
+  .mne-panel {
+    width: 100%;
+    max-width: 460px;
+    margin: 0 auto;
+    background: linear-gradient(180deg, rgba(15, 26, 53, 0.98), rgba(10, 15, 30, 0.98));
+    border: 1px solid rgba(63, 143, 217, 0.25);
+    border-radius: 16px;
+    padding: 18px 18px 16px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    /* spacer below content so keyboard doesn't hide the buttons; user can scroll up to controls */
+    margin-bottom: 280px;
+  }
+  .mne-accent {
+    width: 40px; height: 3px;
+    background: #F7B4AE;
+    border-radius: 2px;
+    margin-bottom: 10px;
+  }
+  .mne-eyebrow {
+    color: rgba(247, 180, 174, 0.85);
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.10em;
+    margin-bottom: 4px;
+  }
+  .mne-eyebrow-center {
+    text-align: center;
+    margin-top: 14px;
+  }
+  .mne-score {
+    color: #fff;
+    font-size: 38px; font-weight: 700;
+    line-height: 1.05;
+    margin-bottom: 6px;
+  }
+  .mne-title {
+    color: #fff;
+    font-size: 18px; font-weight: 700;
+    text-align: center;
+    margin: 8px 0 12px;
+    letter-spacing: 0.04em;
+  }
+  #mneInput {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(247, 180, 174, 0.10);
+    border: 2px solid #F7B4AE;
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 22px; font-weight: 700;
+    color: #fff;
+    font-family: inherit;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+    caret-color: #F7B4AE;
+    /* Ensure the field is freely tappable + selectable on every Android stock browser */
+    touch-action: manipulation;
+    -webkit-user-select: text;
+    user-select: text;
+    pointer-events: auto;
+  }
+  #mneInput:focus {
+    background: rgba(247, 180, 174, 0.18);
+  }
+  #mneInput::placeholder {
+    color: rgba(255, 255, 255, 0.35);
+    font-weight: 400;
+  }
+  .mne-counter {
+    text-align: right;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 10px; font-weight: 700;
+    margin-top: 4px;
+    margin-bottom: 8px;
+  }
+  #mneCountry {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+    border-radius: 10px;
+    padding: 12px 36px 12px 14px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    -webkit-appearance: none;
+    appearance: none;
+    outline: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%23F7B4AE' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M1 1.5l5 5 5-5'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+  #mneCountry option { color: #1a1a1a; background: #fff; }
+  .mne-btn-primary {
+    width: 100%;
+    background: #F7B4AE;
+    color: #1a1a1a;
+    border: 0;
+    border-radius: 999px;
+    padding: 14px;
+    font-family: inherit;
+    font-size: 13px; font-weight: 700;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mne-btn-primary:disabled {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  .mne-btn-skip {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    padding: 10px;
+    font-family: inherit;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    margin-top: 10px;
+    -webkit-tap-highlight-color: transparent;
+  }
 </style>
 </head>
 <body>
 <div id="gameWrap">
   <canvas id="game" width="1200" height="675"></canvas>
   <input id="nameInput" type="text" maxlength="16" autocapitalize="off" autocomplete="off" spellcheck="false" inputmode="text" style="position:fixed;top:50%;left:50%;width:1px;height:1px;opacity:0;border:0;padding:0;margin:0;font-size:16px;color:transparent;background:transparent;caret-color:transparent;pointer-events:none;-webkit-user-select:text;user-select:text;">
+</div>
+
+<!-- Mobile-only name entry overlay (real HTML so the virtual keyboard plays nicely) -->
+<div id="mobileNameEntry" aria-hidden="true">
+  <div class="mne-panel" role="dialog" aria-label="Enter your name">
+    <div class="mne-accent"></div>
+    <div class="mne-eyebrow">YOUR SCORE</div>
+    <div class="mne-score" id="mneScore">0</div>
+    <div class="mne-title">ENTER YOUR NAME</div>
+    <input id="mneInput" type="text" maxlength="16" enterkeyhint="done"
+      autocapitalize="off" autocomplete="off" spellcheck="false" inputmode="text"
+      placeholder="Tap here to type your name">
+    <div class="mne-counter"><span id="mneCounter">0</span>/16</div>
+    <div class="mne-eyebrow mne-eyebrow-center">COUNTRY</div>
+    <select id="mneCountry"></select>
+    <button id="mneSubmit" class="mne-btn-primary" type="button" disabled>SUBMIT SCORE</button>
+    <button id="mneSkip" class="mne-btn-skip" type="button">SKIP &mdash; DON&rsquo;T SAVE</button>
+  </div>
 </div>
 
 <!-- Portrait orientation overlay -->
@@ -511,7 +676,7 @@ function tryFlap() {
   }
   // SESSION_END on desktop: scoreboard stays until R or Reset button
 }
-/* ---------- Hidden input for native mobile keyboard ---------- */
+/* ---------- Hidden input for native mobile keyboard (legacy fallback) ---------- */
 const nameInput = document.getElementById('nameInput');
 if (nameInput) {
   nameInput.addEventListener('input', () => {
@@ -534,6 +699,119 @@ if (nameInput) {
 function focusNameInput() {
   if (!nameInput || !isMobile) return;
   try { nameInput.focus({ preventScroll: true }); } catch (_) { nameInput.focus(); }
+}
+
+/* ---------- Mobile name-entry overlay (real HTML form) ---------- */
+const mneEl       = document.getElementById('mobileNameEntry');
+const mneInput    = document.getElementById('mneInput');
+const mneCountry  = document.getElementById('mneCountry');
+const mneSubmit   = document.getElementById('mneSubmit');
+const mneSkip     = document.getElementById('mneSkip');
+const mneScore    = document.getElementById('mneScore');
+const mneCounter  = document.getElementById('mneCounter');
+
+// Populate country dropdown
+if (mneCountry) {
+  for (const cc of COUNTRIES) {
+    const opt = document.createElement('option');
+    opt.value = cc;
+    opt.textContent = `${cc} — ${COUNTRY_NAMES[cc] || cc}`;
+    mneCountry.appendChild(opt);
+  }
+}
+
+function mneSyncSubmitState() {
+  if (!mneSubmit) return;
+  const ok = nameEntry.text.trim().length > 0 && !nameEntry.submitting;
+  mneSubmit.disabled = !ok;
+  mneSubmit.textContent = nameEntry.submitting ? 'SUBMITTING…' : 'SUBMIT SCORE';
+}
+
+if (mneInput) {
+  mneInput.addEventListener('input', () => {
+    const filtered = Array.from(mneInput.value)
+      .filter(ch => NAME_VALID_CHAR_RE.test(ch))
+      .join('')
+      .slice(0, NAME_MAX_LEN);
+    if (filtered !== mneInput.value) mneInput.value = filtered;
+    nameEntry.text = filtered;
+    if (mneCounter) mneCounter.textContent = filtered.length;
+    mneSyncSubmitState();
+  });
+  mneInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      mneInput.blur();
+      if (nameEntry.text.trim().length > 0 && !nameEntry.submitting) {
+        submitAndShowLeaderboard();
+      }
+    }
+  });
+}
+
+if (mneCountry) {
+  mneCountry.addEventListener('change', () => {
+    const idx = COUNTRIES.indexOf(mneCountry.value);
+    if (idx >= 0) nameEntry.countryIdx = idx;
+  });
+}
+
+if (mneSubmit) {
+  mneSubmit.addEventListener('click', () => {
+    if (nameEntry.submitting || nameEntry.text.trim().length === 0) return;
+    if (mneInput) mneInput.blur();
+    submitAndShowLeaderboard();
+  });
+}
+
+if (mneSkip) {
+  mneSkip.addEventListener('click', () => {
+    if (mneInput) mneInput.blur();
+    hideMobileNameEntry();
+    goToBoot();
+  });
+}
+
+// Reliable keyboard pop on Android: any tap inside the overlay (that isn't on
+// a button/select) focuses the input. The focus() call here happens inside a
+// real user-gesture event handler, which is what every mobile browser
+// requires before opening the virtual keyboard.
+if (mneEl && mneInput) {
+  const focusFromGesture = (e) => {
+    const t = e.target;
+    if (!t) return;
+    // Don't steal focus from buttons / select / option / the input itself.
+    if (t === mneSubmit || t === mneSkip || t === mneCountry || t === mneInput) return;
+    if (t.tagName === 'OPTION' || t.tagName === 'BUTTON' || t.tagName === 'SELECT') return;
+    if (document.activeElement !== mneInput) {
+      try { mneInput.focus({ preventScroll: false }); } catch (_) { mneInput.focus(); }
+    }
+  };
+  mneEl.addEventListener('touchstart', focusFromGesture, { passive: true });
+  mneEl.addEventListener('mousedown', focusFromGesture);
+}
+
+function showMobileNameEntry() {
+  if (!isMobile || !mneEl) return;
+  if (mneScore && world.finalEntry) mneScore.textContent = world.finalEntry.score;
+  if (mneInput) mneInput.value = nameEntry.text || '';
+  if (mneCounter) mneCounter.textContent = (nameEntry.text || '').length;
+  if (mneCountry) mneCountry.value = COUNTRIES[nameEntry.countryIdx] || COUNTRIES[0];
+  mneSyncSubmitState();
+  mneEl.classList.add('active');
+  mneEl.setAttribute('aria-hidden', 'false');
+  // NOTE: don't auto-focus the input here. Many Android browsers (Samsung
+  // Internet, Chrome on MIUI, etc.) refuse to open the virtual keyboard for
+  // a programmatic focus() — the keyboard only opens in response to a real
+  // user gesture. We rely on the user tapping the visible input field
+  // (or anywhere on the panel — see the touchstart handler below) to focus.
+}
+
+function hideMobileNameEntry() {
+  if (!mneEl) return;
+  if (mneInput) mneInput.blur();
+  mneEl.classList.remove('active');
+  mneEl.setAttribute('aria-hidden', 'true');
 }
 
 window.addEventListener('keydown', e => {
@@ -632,6 +910,8 @@ function canvasCoords(e) {
 canvas.addEventListener('mousedown', e => {
   const { x, y } = canvasCoords(e);
   if (state === STATE.NAME_ENTRY && !nameEntry.submitting) {
+    // On mobile the HTML overlay handles all interaction
+    if (isMobile) return;
     handleNameEntryClick(x, y);
     focusNameInput();
     return;
@@ -658,6 +938,8 @@ canvas.addEventListener('touchstart', e => {
   }
   const { x, y } = canvasCoords(e);
   if (state === STATE.NAME_ENTRY && !nameEntry.submitting) {
+    // On mobile the HTML overlay handles all interaction
+    if (isMobile) return;
     handleNameEntryClick(x, y);
     focusNameInput();
     return;
@@ -2099,6 +2381,8 @@ function finalizeAndStartNameEntry() {
   nameEntry.submitted = false;
   state = STATE.NAME_ENTRY;
   if (nameInput) nameInput.value = '';
+  // On mobile, swap canvas-drawn name UI for a real HTML form
+  showMobileNameEntry();
 }
 
 function endSession() {
@@ -2138,6 +2422,7 @@ async function detectAndSetUserCountry() {
 
 async function submitAndShowLeaderboard() {
   nameEntry.submitting = true;
+  if (typeof mneSyncSubmitState === 'function') mneSyncSubmitState();
   const entry = {
     name: getEnteredName(),
     country: COUNTRIES[nameEntry.countryIdx],
@@ -2169,6 +2454,7 @@ async function submitAndShowLeaderboard() {
   );
   nameEntry.submitting = false;
   nameEntry.submitted = true;
+  if (typeof hideMobileNameEntry === 'function') hideMobileNameEntry();
   state = STATE.SESSION_END;
 }
 function tryFlapStart() {
@@ -2231,6 +2517,7 @@ function resetAll() {
 
 /* ---------- Full reset back to boot screen ---------- */
 function goToBoot() {
+  if (typeof hideMobileNameEntry === 'function') hideMobileNameEntry();
   state = STATE.BOOT;
   world.goods = []; world.bads = []; world.gaps = []; world.retrs = []; world.negs = [];
   world.buddies = []; world.featured = [];
@@ -2584,7 +2871,8 @@ function draw() {
 
   if (state === STATE.PAUSE) drawPause();
   if (state === STATE.OVER) drawOver();
-  if (state === STATE.NAME_ENTRY) drawNameEntry();
+  // On mobile we use the HTML overlay (#mobileNameEntry) instead of the canvas-drawn UI
+  if (state === STATE.NAME_ENTRY && !isMobile) drawNameEntry();
   if (state === STATE.SESSION_END) drawSessionEnd();
 }
 
