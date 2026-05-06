@@ -3114,7 +3114,7 @@ function drawBoot() {
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(colSplit, py + 40);
-  ctx.lineTo(colSplit, py + ph - 100);
+  ctx.lineTo(colSplit, py + ph - 140);
   ctx.stroke();
 
   // ========== LEFT COLUMN: DANY + Title ==========
@@ -3258,22 +3258,48 @@ function drawBoot() {
     'When confidence is high, deliver the answer.',
     'Every answer served is a Danoner helped.');
 
-  // ========== BOTTOM: Controls + CTA ==========
+  // ========== BOTTOM: Controls + Tutorial + CTA ==========
+  // Layout (bottom-up, all relative to py + ph):
+  //   CTA      bottom margin 16, height 44 -> top at py + ph - 60
+  //   gap     12
+  //   TUT     height 30 -> top at py + ph - 102
+  //   gap     16
+  //   controls text -> baseline at py + ph - 118
+  //   gap     14
+  //   divider -> py + ph - 132
 
   // Thin divider above controls
   ctx.strokeStyle = 'rgba(63, 143, 217, 0.15)';
   ctx.beginPath();
-  ctx.moveTo(px + 36, py + ph - 92);
-  ctx.lineTo(px + pw - 36, py + ph - 92);
+  ctx.moveTo(px + 36, py + ph - 132);
+  ctx.lineTo(px + pw - 36, py + ph - 132);
   ctx.stroke();
 
   // Controls
   ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
   ctx.font = F(11, 700);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(PROMPTS.controls, W / 2, py + ph - 72);
+  ctx.fillText(PROMPTS.controls, W / 2, py + ph - 118);
 
-  // CTA button
+  // "TRY TUTORIAL" button (above CTA, secondary)
+  const tutBtnW = 220, tutBtnH = 30;
+  const tutBtnX = (W - tutBtnW) / 2;
+  const tutBtnY = py + ph - 102;
+  BOOT_TUTORIAL_BTN.x = tutBtnX;
+  BOOT_TUTORIAL_BTN.y = tutBtnY;
+  BOOT_TUTORIAL_BTN.w = tutBtnW;
+  BOOT_TUTORIAL_BTN.h = tutBtnH;
+  ctx.fillStyle = 'rgba(63, 143, 217, 0.15)';
+  roundRect(ctx, tutBtnX, tutBtnY, tutBtnW, tutBtnH, tutBtnH / 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(63, 143, 217, 0.5)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, tutBtnX, tutBtnY, tutBtnW, tutBtnH, tutBtnH / 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.font = F(11, 700);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('FIRST TIME? TRY TUTORIAL', tutBtnX + tutBtnW / 2, tutBtnY + tutBtnH / 2 + 1);
+
+  // CTA button (primary, bottom)
   const ctaW = 340, ctaH = 44;
   const ctaX = (W - ctaW) / 2;
   const ctaY = py + ph - 44 - 16;
@@ -3299,27 +3325,6 @@ function drawBoot() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(PROMPTS.start, 0, 1);
   ctx.restore();
-
-  // "TRY TUTORIAL" button (smaller, secondary, below CTA)
-  const tutBtnW = 200, tutBtnH = 30;
-  const tutBtnX = (W - tutBtnW) / 2;
-  const tutBtnY = ctaY + ctaH + 12;
-  // Stay within panel — the panel ends at py + ph, but we draw inside the bottom region.
-  // ctaY + ctaH + 12 + 30 = py + ph - 16 - 44 + 44 + 12 + 30 = py + ph - 14 (right at the edge)
-  // To keep margin, position tutBtnY a bit higher by relocating CTA could work, but here we stick close.
-  BOOT_TUTORIAL_BTN.x = tutBtnX;
-  BOOT_TUTORIAL_BTN.y = tutBtnY;
-  BOOT_TUTORIAL_BTN.w = tutBtnW;
-  BOOT_TUTORIAL_BTN.h = tutBtnH;
-  ctx.fillStyle = 'rgba(63, 143, 217, 0.15)';
-  roundRect(ctx, tutBtnX, tutBtnY, tutBtnW, tutBtnH, tutBtnH / 2); ctx.fill();
-  ctx.strokeStyle = 'rgba(63, 143, 217, 0.5)';
-  ctx.lineWidth = 1;
-  roundRect(ctx, tutBtnX, tutBtnY, tutBtnW, tutBtnH, tutBtnH / 2); ctx.stroke();
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-  ctx.font = F(11, 700);
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('FIRST TIME? TRY TUTORIAL', tutBtnX + tutBtnW / 2, tutBtnY + tutBtnH / 2 + 1);
 }
 
 /* ---------- Onboarding legend item ---------- */
@@ -3598,11 +3603,11 @@ function drawPause() {
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = C.white;
   ctx.font = F(48, 700);
-  ctx.textAlign = 'center';
-  ctx.fillText('PAUSED', W/2, H/2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('PAUSED', W/2, H/2 - 8);
   ctx.font = F(16, 500);
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.fillText(PROMPTS.resume, W/2, H/2 + 30);
+  ctx.fillText(PROMPTS.resume, W/2, H/2 + 32);
 }
 
 function drawOver() {
@@ -3858,14 +3863,15 @@ function drawSessionEnd() {
     ctx.fillText('COUNTRY', boardX + 350, colY + 24);
 
     const rowY = colY + 40;
+    const rowGap = 30;
     for (let i = 0; i < Math.min(10, board.length); i++) {
       const e = board[i];
       const isCurrent = (i === world.finalRank);
-      const y = rowY + i * 36;
+      const y = rowY + i * rowGap;
 
       if (isCurrent) {
         ctx.fillStyle = 'rgba(247, 180, 174, 0.12)';
-        roundRect(ctx, boardX - 6, y - 10, 362, 32, 6); ctx.fill();
+        roundRect(ctx, boardX - 6, y - 10, 362, 28, 6); ctx.fill();
       }
 
       // Rank
@@ -3874,26 +3880,26 @@ function drawSessionEnd() {
       ctx.font = F(12, 700);
       ctx.fillText(`#${i + 1}`, boardX, y + 6);
 
-      // Name (3 chars)
+      // Name
       ctx.fillStyle = isCurrent ? C.white : 'rgba(255, 255, 255, 0.85)';
-      ctx.font = F(16, 700);
-      ctx.fillText(truncateName(e.name, 12), boardX + 42, y + 8);
+      ctx.font = F(15, 700);
+      ctx.fillText(truncateName(e.name, 12), boardX + 42, y + 6);
 
       // Score
       ctx.fillStyle = isCurrent ? C.white : 'rgba(255, 255, 255, 0.9)';
-      ctx.font = F(18, 700);
-      ctx.fillText(`${e.score}`, boardX + 140, y + 8);
+      ctx.font = F(16, 700);
+      ctx.fillText(`${e.score}`, boardX + 140, y + 6);
 
       // Details
       ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
       ctx.font = F(9, 400);
-      ctx.fillText(`${e.questions || 0}Q  ${e.avg_quality || 0}%`, boardX + 140, y + 22);
+      ctx.fillText(`${e.questions || 0}Q  ${e.avg_quality || 0}%`, boardX + 140, y + 18);
 
       // Country
       ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
       ctx.font = F(12, 700);
       ctx.textAlign = 'right';
-      ctx.fillText(e.country || '--', boardX + 350, y + 8);
+      ctx.fillText(e.country || '--', boardX + 350, y + 6);
     }
   }
 
